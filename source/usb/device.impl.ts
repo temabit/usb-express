@@ -118,7 +118,7 @@ class Endpoint<Direction extends ENDPOINT_DIRECTION = ENDPOINT_DIRECTION> extend
 	public readonly direction: Direction;
 	public readonly interface: USBInterface;
 	public readonly transferType: TRANSFER_TYPE;
-	public readonly clearHalt: () => Promise<void>;
+	// public readonly clearHalt: () => Promise<void>;
 
 	public constructor(base: libusb.Endpoint, iface: USBInterface, desc: USBEndpointDescriptor, direction: Direction) {
 		super();
@@ -128,7 +128,7 @@ class Endpoint<Direction extends ENDPOINT_DIRECTION = ENDPOINT_DIRECTION> extend
 		this.descriptor = desc;
 		this.direction = direction;
 		this.transferType = mappings.TRANSFER_TYPE.direct(base.transferType)!;
-		this.clearHalt = _wrap(util.promisify(base.clearHalt), base);
+		// this.clearHalt = _wrap(util.promisify(base.clearHalt), base);
 	}
 
 	public get address(): number {
@@ -153,7 +153,7 @@ class InEndpoint extends Endpoint<ENDPOINT_DIRECTION.IN> implements USBInEndpoin
 		super(base, iface, desc, ENDPOINT_DIRECTION.IN);
 		this.transfer = _wrap(util.promisify(base.transfer), base);
 		this.startPoll = (nTransfers, transferSize) => base.startPoll(nTransfers, transferSize);
-		this.stopPoll = _wrap(util.promisify(base.stopPoll), base);
+		this.stopPoll = _wrap(util.promisify(base.stopPoll), base) as () => Promise<void>;
 		for (let event of ['data', 'error', 'end']) {
 			base.on(event, (...args: any[]) => this.emit(event, ...args));
 		}
@@ -321,10 +321,10 @@ async function resolveDescriptorValue(name: string, source: NameSpace, target: N
 	}
 }
 
-function resolveAllDescriptorValues(source: NameSpace, target: NameSpace, getStringDescriptor: (value: number) => Promise<string>): Promise<void> {
-	return Promise.all(
-		Object.keys(source).map((name) => resolveDescriptorValue(name, source, target, getStringDescriptor))
-	) as Promise<any>;
+async function resolveAllDescriptorValues(source: NameSpace, target: NameSpace, getStringDescriptor: (value: number) => Promise<string>): Promise<void> {
+	for (const name of Object.keys(source)) {
+		await resolveDescriptorValue(name, source, target, getStringDescriptor);
+	}
 }
 
 function isValueNull(pair: [string, any]): boolean {

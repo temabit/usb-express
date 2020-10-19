@@ -1,6 +1,7 @@
-import { TypedEmitter } from '@temabit/extension-io/lib';
+
 import libusb from '@temabit/usb';
 import { NameSpace } from 'typed-patterns';
+import { TypedEmitter } from '../util/typed.emitter';
 
 export enum ENDPOINT_DIRECTION {
 	IN = 'IN',
@@ -169,7 +170,7 @@ export function isOutputRequest(request: RequestBase): request is OutputRequest 
 export interface USBDevice extends TypedEmitter<USBDeviceEventMap> {
 	readonly parent?: Promise<USBDevice>;
 	readonly interfaces: ReadonlyMap<number, USBInterface>;
-	readonly descriptor: USBDeviceDescriptor;
+	readonly descriptor: Readonly<USBDeviceDescriptor>;
 
 	controlTransfer(request: InputRequest): Promise<Buffer>;
 	controlTransfer(request: OutputRequest): Promise<void>;
@@ -213,6 +214,7 @@ export interface USBInterface {
 	readonly isClaimed: boolean;
 	readonly isKernelDriverActive: boolean;
 	readonly endpoints: ReadonlyMap<number, USBEndpoint>;
+	readonly descriptor: Readonly<USBInterfaceDescriptor>;
 
 	claim(): void;
 	release(close?: boolean): Promise<void>;
@@ -226,8 +228,8 @@ export interface USBEndpoint {
 	readonly transferType: TRANSFER_TYPE;
 	readonly direction: ENDPOINT_DIRECTION;
 	timeout: number;
-	readonly descriptor: USBEndpointDescriptor;
-	clearHalt(): Promise<void>;
+	readonly descriptor: Readonly<USBEndpointDescriptor>;
+	// clearHalt(): Promise<void>;
 }
 
 interface USBInEndpointEventMap extends NameSpace<any[]> {

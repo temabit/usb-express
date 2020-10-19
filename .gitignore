@@ -180,3 +180,4 @@ fabric.properties
 /lib-test/
 /dist/
 !/source/*
+tsconfig.tsbuildinfo

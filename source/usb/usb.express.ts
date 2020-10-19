@@ -1,37 +1,22 @@
 import { EventEmitter } from 'events';
 import libusb from '@temabit/usb';
 import debug from 'debug';
-import { AsyncProcessor } from 'typed-patterns';
 import { List } from '../util/linked.list';
 import { createDevice } from './device.impl';
 import { USBDevice } from './device.interface';
 const debuglog = debug('usb-express');
 
-
-export type AttachHandler = (device: USBDevice, next: () => void) => any;
-
-export interface AttachContext {
-	device: USBDevice;
-	claim: () => void;
-	release: () => void;
+interface AttachHandler {
+	(device: USBDevice, next: () => void): any;
+	release?: (device: USBDevice, callback: (error: Error | null) => void) => void;
 }
-
-export interface AttachResolution {
-	device: USBDevice;
-	detach?: AsyncProcessor<USBDevice, []>;
-}
-
-export type AttachProcessor = AsyncProcessor<AttachContext, [AttachResolution]>;
-
-
 
 var _instance: USBExpress | null;
 
 export class USBExpress {
-	private readonly _handlers: WeakMap<AttachHandler, AttachProcessor>;
-	private readonly _chain: List<AttachProcessor>;
-	private readonly _unusedDevices: Set<libusb.Device>;
+	private readonly _chain: List<AttachHandler>;
 	private readonly _allDevices: Map<libusb.Device, USBDevice>;
+	private readonly _matchedDevices: Map<USBDevice, AttachHandler | null>;
 
 	public static get Instance(): USBExpress {
 		if (!_instance) {
@@ -40,30 +25,55 @@ export class USBExpress {
 		return _instance;
 	}
 
-	private readonly _close = (_device: libusb.Device, usbDevice: USBDevice) => {
-		let promises: Promise<void>[] = [];
-		for (let iface of usbDevice.interfaces.values()) {
-			promises.push(iface.release(true).catch((error) => console.warn(`Interface release error %o`, error)));
+	private readonly _close = (_device: libusb.Device, usbDevice: USBDevice, handler: AttachHandler | null) => {
+		if (handler && handler.release) {
+			handler.release(usbDevice, (error) => {
+				if (error) {
+					console.warn(`Device release error %o`, error);
+				}
+				usbDevice.close();
+			});
+		} else {
+			Promise.allSettled(
+				Array.from(usbDevice.interfaces.values()).map(
+					async (iface) => {
+						let error: any;
+						for (let retry = 0; retry !== 3; ++retry) {
+							if (iface.isClaimed) {
+								try {
+									await iface.release();
+									return;
+								} catch (e) {
+									error = e;
+								}
+							}
+						}
+						throw error;
+					}
+				)
+			).then(() => usbDevice.close());
 		}
-		Promise.all(promises).then(() => usbDevice.close());
 	};
 
 	private readonly _handleDevice = (
 		device: libusb.Device,
 		usbDevice: USBDevice,
-		start?: IListElement<AttachHandler>,
+		from?: Iterator<AttachHandler>,
 	) => {
 		this._allDevices.set(device, usbDevice);
 		debuglog('handleDevice{VENDOR=%j, PRODUCT=%j}', usbDevice.descriptor.VendorName, usbDevice.descriptor.ProductName);
-		let listElement = start || this._chain.next;
-		this._unusedDevices.delete(device);
+		let iterator = from || this._chain[Symbol.iterator]();
+		this._matchedDevices.set(usbDevice, null);
 		const next = (): void => {
-			if (isListHead(listElement)) {
-				this._unusedDevices.add(device);
-			} else if (isLoadedElement(listElement)) {
-				let handler = listElement.payload;
-				listElement = listElement.next;
+			const { value: handler, done } = iterator.next();
+
+			if (handler) {
+				this._matchedDevices.set(usbDevice, handler);
 				process.nextTick(handler, usbDevice, next);
+			}
+
+			if (done) {
+				this._matchedDevices.set(usbDevice, null);
 			}
 		};
 		next();
@@ -99,25 +109,25 @@ export class USBExpress {
 
 	private readonly _onDeviceDetach = (device: libusb.Device, closeManually?: boolean): void => {
 		debuglog('DEVICE DETACH %j', device.deviceDescriptor);
-		let usbDevice = this._allDevices.get(device);
+		const usbDevice = this._allDevices.get(device);
 		if (usbDevice) {
 			this._allDevices.delete(device);
-			if (!this._unusedDevices.has(device)) {
-				this._unusedDevices.delete(device);
+			const handler = this._matchedDevices.get(usbDevice);
+			this._matchedDevices.delete(usbDevice);
+			if (handler) {
 				usbDevice.emit('detach');
 			}
 			if (closeManually) {
-				this._close(device, usbDevice);
+				this._close(device, usbDevice, handler || null);
 			}
 		}
 	};
 
 	private constructor() {
-		this._chain = listCreate();
-		this._unusedDevices = new Set();
+		this._chain = new List();
 		this._allDevices = new Map();
+		this._matchedDevices = new Map();
 
-		process.once('SIGINT', this.stop);
 		libusb.on('attach', this._onDeviceAttach);
 		libusb.on('detach', this._onDeviceDetach);
 		for (let device of libusb.getDeviceList()) {
@@ -126,31 +136,10 @@ export class USBExpress {
 	}
 
 	public attach(handler: AttachHandler): void {
-		let element = listPrepend(this._chain, handler);
-		for (let [device, usbDevice] of this._allDevices) {
-			if (this._unusedDevices.has(device)) {
-				this._handleDevice(device, usbDevice, element);
-			}
-		}
+		this._chain.push(handler);
 	}
 
-	public addHandler(handler: AttachHandler): void {
-
-	}
-
-	public removeHandler(handler: AttachHandler): void {
-
-	}
-
-	public addProcessor(processor: AttachProcessor): void {
-
-	}
-
-	public removeProcessor(processor: AttachProcessor): void {
-
-	}
-
-	public stop = () => {
+	public stop(): void {
 		try {
 			debuglog('STOP');
 			/// @todo declare libusb as TypedEmitter
@@ -164,4 +153,8 @@ export class USBExpress {
 			debuglog('stop()', e);
 		}
 	};
+
+	private readonly __stop = () => {
+		this.stop();
+	}
 }
