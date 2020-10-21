@@ -6,7 +6,7 @@ import { createDevice } from './device.impl';
 import { USBDevice } from './device.interface';
 const debuglog = debug('usb-express');
 
-interface AttachHandler {
+export interface AttachHandler {
 	(device: USBDevice, next: () => void): any;
 	release?: (device: USBDevice, callback: (error: Error | null) => void) => void;
 }
