@@ -270,7 +270,11 @@ class Device extends EventEmitter implements USBDevice {
 		this._controlTransfer = _wrap(util.promisify(base.controlTransfer), base) as (bmRequestType: number, bRequest: number, wValue: number, wIndex: number, data_or_length: any) => Promise<Buffer | undefined>;
 		this._getStringDescriptor = _wrap(util.promisify(base.getStringDescriptor), base) as (descriptor: number) => Promise<Buffer>;
 		this._reset = _wrap(util.promisify(base.reset), base) as () => Promise<void>;
-		this.close = base.close.bind(base);
+		this.close = () => {
+			debuglog('device.close()...');
+			base.close();
+			debuglog('device.close(): OK');
+		};
 	}
 
 	public controlTransfer(request: InputRequest): Promise<Buffer>;
@@ -407,7 +411,9 @@ export const createDevice = WeakCached(async (device: libusb.Device): Promise<US
 		Device: null,
 		USB: null
 	};
+	debuglog('device.open()...');
 	device.open();
+	debuglog('device.open(): OK');
 	let getStringDescriptor = (value: number): Promise<string> => {
 		let getDesc = _wrap(util.promisify(device.getStringDescriptor), device) as (value: number) => Promise<Buffer>;
 		return getDesc(value).then(bufferToUtf8);

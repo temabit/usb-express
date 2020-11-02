@@ -1,6 +1,6 @@
 {
   "name": "@temabit/usb-express",
-  "version": "0.2.1",
+  "version": "0.2.6",
   "description": "USB device handler based on chain-of-responsibility pattern",
   "main": "./lib/index.js",
   "module": "./lib/index.js",
@@ -17,7 +17,7 @@
   "author": "o.fedorchuk@temabit.com",
   "license": "MIT",
   "dependencies": {
-    "@temabit/usb": "^1.6.2",
+    "@temabit/usb": "^1.6.4",
     "debug": "^4.1.1",
     "typed-patterns": "^0.2.11"
   },

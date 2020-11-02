@@ -1,10 +1,28 @@
 import { EventEmitter } from 'events';
 import libusb from '@temabit/usb';
 import debug from 'debug';
+import { format } from 'util';
 import { List } from '../util/linked.list';
 import { createDevice } from './device.impl';
 import { USBDevice } from './device.interface';
 const debuglog = debug('usb-express');
+
+function once<T extends (...args: any[]) => any>(operator: T): T {
+	let cache: null | (() => ReturnType<T>) = null;
+	return function (...args: Parameters<T>): ReturnType<T> {
+		if (cache === null) {
+			try {
+				const r = operator(...args);
+				cache = () => r;
+			} catch (error) {
+				cache = () => { throw error; };
+			}
+		} else {
+			debuglog('DUP CALL OF %o', operator);
+		}
+		return cache();
+	} as T;
+}
 
 export interface AttachHandler {
 	(device: USBDevice, next: () => void): any;
@@ -56,23 +74,30 @@ export class USBExpress {
 	};
 
 	private readonly _handleDevice = (
-		device: libusb.Device,
 		usbDevice: USBDevice,
 		from?: Iterator<AttachHandler>,
 	) => {
-		this._allDevices.set(device, usbDevice);
-		debuglog('handleDevice{VENDOR=%j, PRODUCT=%j}', usbDevice.descriptor.VendorName, usbDevice.descriptor.ProductName);
 		let iterator = from || this._chain[Symbol.iterator]();
-		this._matchedDevices.set(usbDevice, null);
+		const {VendorId, ProductId, Manufacturer, Product, SerialNumber} = usbDevice.descriptor;
+		const id = format(
+			'VID=%s PID=%s Manufacturer=%j Product=%j SN=%j',
+			VendorId.toString(16).padStart(4, '0'),
+			ProductId.toString(16).padStart(4, '0'),
+			Manufacturer,
+			Product,
+			SerialNumber,
+		);
 		const next = (): void => {
 			const { value: handler, done } = iterator.next();
 
 			if (handler) {
 				this._matchedDevices.set(usbDevice, handler);
-				process.nextTick(handler, usbDevice, next);
+				debuglog('handle %s Device{%sj}', handler.name, id);
+				process.nextTick(handler, usbDevice, once(next));
 			}
 
 			if (done) {
+				debuglog('DONE Device{%s}', id);
 				this._matchedDevices.set(usbDevice, null);
 			}
 		};
@@ -104,7 +129,15 @@ export class USBExpress {
 
 	private readonly _onDeviceAttach = (device: libusb.Device): void => {
 		debuglog('DEVICE ATTACH %j', device.deviceDescriptor);
-		createDevice(device).then(this._handleDevice.bind(this, device), this._handleDeviceError.bind(this, device));
+		createDevice(device)
+			.then(
+				(usbDevice) => {
+					this._allDevices.set(device, usbDevice);
+					this._matchedDevices.set(usbDevice, null);
+					this._handleDevice(usbDevice);
+				},
+				(error) => this._handleDeviceError(device, error),
+			);
 	};
 
 	private readonly _onDeviceDetach = (device: libusb.Device, closeManually?: boolean): void => {
@@ -136,7 +169,18 @@ export class USBExpress {
 	}
 
 	public attach(handler: AttachHandler): void {
+		const size = this._chain.size;
 		this._chain.push(handler);
+
+		for (const [usbDevice, handler] of this._matchedDevices) {
+			const iterator = this._chain[Symbol.iterator]();
+			for (let i = 0; i < size; ++i) {
+				iterator.next();
+			}
+			if (!handler) {
+				this._handleDevice(usbDevice, iterator);
+			}
+		}
 	}
 
 	public stop(): void {
