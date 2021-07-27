@@ -1,11 +1,9 @@
-# IDE
 .idea
 .vscode
 
-# Personal
-/lib/
-/lib-test/
-/dist/
-!/source/*
 node_modules
 tsconfig.tsbuildinfo
+
+local
+lib
+lib-test

@@ -217,7 +217,7 @@ export interface USBInterface {
 	readonly descriptor: Readonly<USBInterfaceDescriptor>;
 
 	claim(): void;
-	release(close?: boolean): Promise<void>;
+	release(): Promise<void>;
 	attachKernelDriver(): void;
 	detachKernelDriver(): void;
 }

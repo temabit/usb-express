@@ -59,8 +59,8 @@ class ListHead<PayloadType = any> extends AListElement {
 }
 
 class ListElement<PayloadType = any> extends AListElement {
-	public prev: ListElement<PayloadType> | ListHead | null;
-	public next: ListElement<PayloadType> | ListHead | null;
+	public prev!: ListElement<PayloadType> | ListHead | null;
+	public next!: ListElement<PayloadType> | ListHead | null;
 	public payload: PayloadType;
 
 	public constructor(payload: PayloadType) {

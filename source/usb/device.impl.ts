@@ -221,22 +221,10 @@ class Interface implements USBInterface {
 		}
 	}
 
-	public readonly release = async (closeEndpoints: boolean = false) => {
+	public readonly release = async () => {
 		if (this._isClaimed) {
 			this._isClaimed = false;
-			if (closeEndpoints) {
-				for (let ep of this.endpoints.values()) {
-					if (isInEndpoint(ep)) {
-						try {
-							await ep.stopPoll();
-						} catch (e) {
-							debuglog('EP stopPoll', e);
-						}
-					}
-					(ep as Endpoint).removeAllListeners();
-				}
-			}
-			await this._release(closeEndpoints);
+			await this._release(true);
 		}
 	}
 }
@@ -309,7 +297,7 @@ async function resolveDescriptorValue(name: string, source: NameSpace, target: N
 				target[property] = value;
 				break;
 			case 'i':
-				target[property] = await getStringDescriptor(value);
+				target[property] = await getStringDescriptor(value).catch((error: USBError) => `ERROR: ${error.code}`);
 				break;
 			case 'id':
 				target[property + 'Id'] = value;
@@ -414,9 +402,9 @@ export const createDevice = WeakCached(async (device: libusb.Device): Promise<US
 	debuglog('device.open()...');
 	device.open();
 	debuglog('device.open(): OK');
-	let getStringDescriptor = (value: number): Promise<string> => {
-		let getDesc = _wrap(util.promisify(device.getStringDescriptor), device) as (value: number) => Promise<Buffer>;
-		return getDesc(value).then(bufferToUtf8);
+	const _getStringDescriptor = _wrap(util.promisify(device.getStringDescriptor), device) as (descriptor: number) => Promise<Buffer>;
+	const getStringDescriptor = (descriptor: number) => {
+		return _getStringDescriptor(descriptor).then(bufferToUtf8);
 	};
 	await resolveAllDescriptorValues(device.deviceDescriptor, descriptor, getStringDescriptor);
 	let nullPair = Object.entries(descriptor).find(isValueNull);
